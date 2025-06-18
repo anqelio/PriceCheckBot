@@ -1,5 +1,3 @@
-from xml.sax.handler import all_properties
-
 import telebot
 import requests
 from bs4 import BeautifulSoup
@@ -33,6 +31,9 @@ class PriceCheckBot:
         self.bot.callback_query_handler(func=lambda call: call.data == 'clear_comparison')(self.clear_comparison)
         self.bot.callback_query_handler(func=lambda call: call.data == 'callback_help')(self.helps_callback)
         self.bot.callback_query_handler(func=lambda call: call.data == 'callback_info')(self.info_callback)
+        self.bot.callback_query_handler(func=lambda call: call.data.startswith('select_product_'))(
+            self.handle_product_selection)
+        self.bot.callback_query_handler(func=lambda call: call.data == 'cancel_selection')(self.cancel_selection)
 
     def run(self):
         """Запуск бота"""
@@ -130,16 +131,16 @@ class PriceCheckBot:
             self.web_clothes(message)
         elif message.text == 'Вернуться в Главное меню':
             self.main(message)
-        elif message.text in ['re:premium', 'Девайс', 'Айстудио']:
+        elif message.text in ['re:premium', 'Девайс']:
             self.selected_store(message)
-        elif message.text in ['4:20 Shop', 'Brand66Shop', 'Корт']:
+        elif message.text in ['4:20 Shop', 'Brand66Shop']:
             self.selected_store(message)
         else:
             self.bot.send_message(message.chat.id, 'Пожалуйста, выберите опцию из меню.')
 
     def web_technic(self, message):
         buttons = [
-            ['re:premium', 'Девайс', 'Айстудио'],
+            ['re:premium', 'Девайс'],
             ['Вернуться в Главное меню']
         ]
         markup = self.create_reply_keyboard(buttons)
@@ -154,7 +155,7 @@ class PriceCheckBot:
 
     def web_clothes(self, message):
         buttons = [
-            ['4:20 Shop', 'Brand66Shop', 'Корт'],
+            ['4:20 Shop', 'Brand66Shop'],
             ['Вернуться в Главное меню']
         ]
         markup = self.create_reply_keyboard(buttons)
@@ -166,27 +167,6 @@ class PriceCheckBot:
             reply_markup=markup
         )
         self.bot.register_next_step_handler(message, self.click_catalog)
-
-    def format_product_message(self, product_info):
-        """Форматирует информацию о товаре в красивое сообщение"""
-        message = "🛍️ <b>{name}</b>\n".format(name=product_info.get('name', 'Название не указано'))
-
-        if 'price' in product_info:
-            message += "💰 <b>Цена:</b> {price}\n".format(price=product_info['price'])
-
-        if 'link' in product_info:
-            message += "🔗 <a href='{link}'>Смотреть товар</a>\n".format(link=product_info['link'])
-
-        if 'image' in product_info:
-            message += "📸 <a href='{image}'>Фото товара</a>\n".format(image=product_info['image'])
-
-        if 'sizes' in product_info and product_info['sizes']:
-            message += "📏 <b>Размеры:</b> {sizes}\n".format(sizes=", ".join(product_info['sizes']))
-
-        if 'description' in product_info and product_info['description']:
-            message += "\n📝 <b>Описание:</b>\n{desc}\n".format(desc=product_info['description'])
-
-        return message
 
     def selected_store(self, message):
         store = message.text
@@ -338,7 +318,8 @@ class PriceCheckBot:
                 if count % 3 == 0 or count == end_page:  # Обновлять каждые 3 страницы или в конце
                     progress = self.create_progress_bar(count - start_page + 1, total_pages)
                     try:
-                        self.bot.edit_message_text(f"🔍 Сканирование {store}...\n{progress}", chat_id=chat_id, message_id=progress_msg.message_id)
+                        self.bot.edit_message_text(f"🔍 Сканирование {store}...\n{progress}", chat_id=chat_id,
+                                                   message_id=progress_msg.message_id)
                     except:
                         pass  # Игнорируем ошибки редактирования
         finally:
@@ -391,7 +372,6 @@ class PriceCheckBot:
                 'variants',
                 start_page, end_page
             )
-            print(f'{base_url}{url_part}/?page={{count}}')
 
     def parse_brand66_category(self, message, store, base_url, url_template, container_class, item_class, start_page,
                                end_page):
@@ -448,9 +428,9 @@ class PriceCheckBot:
                     progress = self.create_progress_bar(count - start_page + 1, total_pages)
                     try:
                         self.bot.edit_message_text(
-                        f"🔍 Сканирование {store}...\n{progress}",
-                        chat_id=chat_id,
-                        message_id=progress_msg.message_id
+                            f"🔍 Сканирование {store}...\n{progress}",
+                            chat_id=chat_id,
+                            message_id=progress_msg.message_id
                         )
                     except:
                         pass
@@ -638,7 +618,8 @@ class PriceCheckBot:
 
         if message.text in category_urls:
             url_part, start_page, end_page = category_urls[message.text]
-            self.parse_re_premium_products(message, store, base_url, f'{base_url}{url_part}/?PAGEN_4={{count}}', start_page, end_page)
+            self.parse_re_premium_products(message, store, base_url, f'{base_url}{url_part}/?PAGEN_4={{count}}',
+                                           start_page, end_page)
 
     def parse_re_premium_products(self, message, store, base_url, url_template, start_page, end_page):
         chat_id = message.chat.id
@@ -687,7 +668,6 @@ class PriceCheckBot:
                                 'store': store
                             }
                             all_products.append(product_info)
-                            print(product_info)
                         except Exception as e:
                             print(f"Ошибка при обработке товара: {e}")
                             continue
@@ -942,25 +922,24 @@ class PriceCheckBot:
             )
 
     def offer_comparison(self, message):
-        """Предлагаем добавить товары в сравнение"""
-        chat_id = message.chat.id
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
         markup.row('Добавить товар в сравнение')
         markup.row('Показать сравнение', 'Очистить сравнение')
-        markup.row('Вернуться в Главное меню')
+
+        # Добавляем кнопку "Новый поиск" вместо возврата в главное меню
+        markup.row('Вернуться в меню')
 
         self.bot.send_message(
-            chat_id,
-            "Вы можете добавить товары в сравнение из разных магазинов.\n"
-            "Введите точное название товара для добавления:",
+            message.chat.id,
+            "Вы можете:\n1. Добавить товар в сравнение\n2. Просмотреть текущее сравнение\n3. Очистить сравнение\n4.Вернуться в меню и начать новый поиск",
             reply_markup=markup
         )
         self.bot.register_next_step_handler(message, self.handle_comparison_actions)
 
     def handle_comparison_actions(self, message):
         chat_id = message.chat.id
-        if message.text == 'Вернуться в Главное меню':
-            self.main(message)
+        if message.text == 'Вернуться в меню':
+            self.product_category(message)
         elif message.text == 'Добавить товар в сравнение':
             self.bot.send_message(
                 chat_id,
@@ -982,43 +961,163 @@ class PriceCheckBot:
 
         # Проверяем есть ли товары для сравнения
         if chat_id not in self.last_parsed_products or not self.last_parsed_products[chat_id]:
-            self.bot.send_message(chat_id, "Сначала найдите товары через поиск!")
-            return self.main(message)
+            # Вместо возврата в главное меню предлагаем повторить поиск
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add('Найти товар')
+            self.bot.send_message(
+                chat_id,
+                "❌ Товары не найдены. Сначала выполните поиск по магазинам.",
+                reply_markup=markup
+            )
+            return
 
         # Ищем товары по названию
+        # Ищем товары по частичному совпадению названия
         found_products = [
             p for p in self.last_parsed_products[chat_id]
             if product_name.lower() in p['name'].lower()
         ]
 
         if not found_products:
-            self.bot.send_message(chat_id, "Товар не найден. Попробуйте другое название.")
-            return self.offer_comparison(message)
+            # Если не нашли - показываем похожие варианты
+            similar_products = [
+                                   p['name'] for p in self.last_parsed_products[chat_id]
+                                   if product_name.lower() in p['name'].lower()[:20]  # Проверяем начало названия
+                               ][:10]  # Не более 10 вариантов
 
-        # Берем первый найденный товар
-        product = found_products[0]
-        store = self.comparison_data[chat_id]['current_store']
+            if similar_products:
+                msg = "Точного совпадения нет, но возможно вы искали:\n"
+                msg += "\n".join(f"• {name}" for name in similar_products)
+            else:
+                msg = "❌ Товары не найдены. Попробуйте уточнить название."
+
+            self.bot.send_message(chat_id, msg)
+            return self.offer_comparison(message)  # Возвращаем к выбору действий
+
+        # Сохраняем найденные варианты во временное хранилище
+        self.last_parsed_products[chat_id] = found_products
+
+        # Если нашли только один вариант - добавляем сразу
+        if len(found_products) == 1:
+            self._add_product_to_comparison(chat_id, 0)
+            self.offer_comparison(message)  # <-- Важная строка!
+            return
+
+        # Создаем клавиатуру с вариантами
+        keyboard = types.InlineKeyboardMarkup()
+        for i, product in enumerate(found_products[:5]):  # Ограничиваем 5 вариантами
+            # Форматируем текст кнопки: название + цена + магазин
+            btn_text = f"{i + 1}. {product['name'][:20]}"
+            if 'price' in product:
+                btn_text += f" | {product['price']}"
+            if 'store' in product:
+                btn_text += f" | {product['store']}"
+
+            keyboard.add(types.InlineKeyboardButton(
+                btn_text,
+                callback_data=f"select_product_{i}"
+            ))
+
+        # Добавляем кнопку "Отмена"
+        keyboard.add(types.InlineKeyboardButton("❌ Отмена", callback_data="cancel_selection"))
+
+        self.bot.send_message(
+            chat_id,
+            f"🔍 Найдено {len(found_products)} вариантов. Выберите нужный:",
+            reply_markup=keyboard
+        )
+
+    def _add_product_to_comparison(self, chat_id, index):
+        if chat_id not in self.last_parsed_products:
+            self.bot.send_message(chat_id, "Время выбора истекло. Начните заново.")
+            return self.offer_comparison(chat_id)
+
+        products = self.last_parsed_products[chat_id]
+        if index < 0 or index >= len(products):
+            self.bot.send_message(chat_id, "Неверный выбор. Попробуйте снова.")
+            return self.offer_comparison(chat_id)
+
+        product = products[index]
+        store = self.comparison_data[chat_id]['current_store'] if chat_id in self.comparison_data else product.get(
+            'store', 'Неизвестный магазин')
 
         # Проверяем дубликаты
         if any(p['link'] == product['link'] for p in self.comparison_data[chat_id]['products']):
             self.bot.send_message(chat_id, "Этот товар уже добавлен!")
-            return self.offer_comparison(message)
+            return self.offer_comparison(chat_id)
 
         # Добавляем товар
-        self.comparison_data[chat_id]['products'].append({
-            'name': product['name'],
-            'price': product['price'],
-            'link': product['link'],
-            'store': store
-        })
+        if 'sizes' in product or 'description' in product:
+            self.comparison_data[chat_id]['products'].append({
+                'name': product['name'],
+                'price': product['price'],
+                'link': product['link'],
+                'sizes': product['sizes'],
+                'description': product['description'],
+                'store': store
+            })
 
-        self.bot.send_message(
-            chat_id,
-            f"✅ {product['name']} из {store} добавлен!\n"
-            f"Цена: {product['price']}"
-        )
+            message = f"✅ <b>{product['name']}</b> добавлен!\n"
+            message += f"🏪 Магазин: {store}\n"
+            message += f"💰 Цена: {product['price']}\n"
+            message += f"📐 Размеры: {str(product['sizes']).replace('[', '').replace(']', '')}\n"
+            message += f"✏️ Описание: {product['description']}\n"
+            message += f"🔗 Ссылка: {product['link']}"
+        if 'sizes' not in product or 'description' not in product:
+            self.comparison_data[chat_id]['products'].append({
+                'name': product['name'],
+                'price': product['price'],
+                'link': product['link'],
+                'store': store
+            })
 
-        self.offer_comparison(message)
+            message = f"✅ <b>{product['name']}</b> добавлен!\n"
+            message += f"🏪 Магазин: {store}\n"
+            message += f"💰 Цена: {product['price']}\n"
+            message += f"🔗 Ссылка: {product['link']}"
+
+        if 'image' in product and product['image']:
+            try:
+                self.bot.send_photo(
+                    chat_id,
+                    product['image'],
+                    caption=message,
+                    parse_mode='HTML'
+                )
+            except:
+                self.bot.send_message(chat_id, message, parse_mode='HTML')
+        else:
+            self.bot.send_message(chat_id, message, parse_mode='HTML')
+
+        # Очищаем временное хранилище
+        del self.last_parsed_products[chat_id]
+
+
+    def handle_product_selection(self, call):
+        chat_id = call.message.chat.id
+        try:
+            index = int(call.data.split('_')[-1])
+            self._add_product_to_comparison(chat_id, index)
+            try:
+                self.bot.delete_message(chat_id, call.message.message_id)
+            except:
+                pass
+            # Исправлено: передаем call.message вместо chat_id
+            self.offer_comparison(call.message)  # Было: self.offer_comparison(chat_id)
+        except Exception as e:
+            self.bot.send_message(chat_id, f"Ошибка выбора: {str(e)}")
+
+    def cancel_selection(self, call):
+        chat_id = call.message.chat.id
+        if chat_id in self.last_parsed_products:
+            del self.last_parsed_products[chat_id]
+
+        self.bot.send_message(chat_id, "❌ Выбор отменен")
+        try:
+            self.bot.delete_message(chat_id, call.message.message_id)
+        except:
+            pass
+        self.offer_comparison(call.message)
 
     def show_comparison(self, message):
         """Показ сравнения товаров из разных магазинов"""
